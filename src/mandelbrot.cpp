@@ -8,6 +8,7 @@
 #include "cyclic_gradient.h"
 #include "open_sans_semibold.h"
 #include "vector_util.h"
+#include <limits>
 
 // For use by our constructor.
 // Returns the appropriate initial world bounds.
@@ -146,6 +147,21 @@ void MandelbrotViewer::updateViewState(const InputSummary& inputs, sf::Time delt
 void MandelbrotViewer::handleZoom(double scrollDistance, sf::Vector2i mousePosition) {
     double worldViewFactor = std::pow(ZOOM_EXPONENT_BASE, scrollDistance);
 
+    sf::Vector2<double> mouseWorld =
+        windowPosToWorld(sf::Vector2<double>(mousePosition));
+
+    sf::Vector2<double> oldSize = mMaxPointWorld - mMinPointWorld;
+    sf::Vector2<double> newSize = oldSize * worldViewFactor;
+
+    double xRatio = static_cast<double>(mousePosition.x) / mWindowSize.x;
+    double yRatio = static_cast<double>(mousePosition.y) / mWindowSize.y;
+
+    mMinPointWorld.x = mouseWorld.x - xRatio * newSize.x;
+    mMaxPointWorld.x = mMinPointWorld.x + newSize.x;
+
+    mMaxPointWorld.y = mouseWorld.y + yRatio * newSize.y;
+    mMinPointWorld.y = mMaxPointWorld.y - newSize.y;
+
     // TODO: expand our world view bounds (mMinPointWorld, mMaxPointWorld)
     // by worldViewFactor around the current world point being pointed to by the user's cursor.
     // In particular, the new world-coordinates rectangle will be of size
@@ -158,6 +174,11 @@ void MandelbrotViewer::handleWindowResize(sf::Vector2u newSize)  // newSize is i
     // IMPORTANT: after resizing window, need to fix view, or else original world
     // rectangle gets scaled to new window size instead. This line ensures that when the window
     // expands, "more of the world" is correspondingly viewable.
+
+     if (newSize.x == 0 || newSize.y == 0) {
+        return;
+    }
+
     mWindow.setView(sf::View(
         sf::FloatRect({0, 0}, {static_cast<float>(newSize.x), static_cast<float>(newSize.y)})));
 
@@ -168,6 +189,23 @@ void MandelbrotViewer::handleWindowResize(sf::Vector2u newSize)  // newSize is i
     //       was scaled in the respective dimension, such that the original view is only
     //       cropped/extended, not zoomed.
     // ... your code here...
+
+    sf::Vector2<double> center = (mMinPointWorld + mMaxPointWorld) / 2.0;
+
+    sf::Vector2<double> oldSize = mMaxPointWorld - mMinPointWorld;
+
+    double xScale = static_cast<double>(newSize.x) / mWindowSize.x;
+    double yScale = static_cast<double>(newSize.y) / mWindowSize.y;
+
+    sf::Vector2<double> newWorldSize(oldSize.x * xScale, oldSize.y * yScale);
+
+    mMinPointWorld = center - newWorldSize / 2.0;
+    mMaxPointWorld = center + newWorldSize / 2.0;
+
+    mViewBuffer.resize(newSize);
+    (void)mViewBufferGPU.resize(newSize);
+
+    mViewSprite.setTextureRect(sf::IntRect({0, 0}, sf::Vector2i(newSize)));
 
     // update CPU-side image buffer size to have enough memory for all the pixels:
     mViewBuffer.resize(newSize);
@@ -203,9 +241,23 @@ void MandelbrotViewer::updateUIText(sf::Vector2i mouseWindowCoords) {
 }
 
 double MandelbrotViewer::mandelbrot(double cX, double cY, int maxIters) const {
-    // TODO: return the number of iterations it takes for z to escape a radius of 2,
+    // (done) TODO: return the number of iterations it takes for z to escape a radius of 2,
     //       if it happens within maxIters iterations, otherwise return infinity.
 
+    double zX = 0.0;
+    double zY = 0.0;
+
+    for (int i = 1; i <= maxIters; i++) {
+        double newX = zX * zX - zY * zY + cX;
+        double newY = 2.0 * zX * zY + cY;
+
+        zX = newX;
+        zY = newY;
+
+        if (zX * zX + zY * zY > 4.0) {
+            return i;
+        }
+    }
     return std::numeric_limits<double>::infinity();  // get rid of this and add your code here...
 }
 
@@ -220,11 +272,21 @@ double MandelbrotViewer::mandelbrotSmooth(double cX, double cY, int maxIters) co
 
 // windowPosToWorld takes a point in window coordinates and converts it to world coordinates
 sf::Vector2<double> MandelbrotViewer::windowPosToWorld(const sf::Vector2<double>& pWindow) {
-    // TODO: given a point in window coordinates (by default SFML gives these as sf::Vector2i,
+    // (done) TODO: given a point in window coordinates (by default SFML gives these as sf::Vector2i,
     //       the caller will have to cast to sf::Vector2<double>), convert them into world
     //       coordinates in the context of the current world view.
 
-    return {};
+    double width = mMaxPointWorld.x - mMinPointWorld.x;
+    double height = mMaxPointWorld.y - mMinPointWorld.y;
+
+    double xRatio = pWindow.x / mWindowSize.x;
+    double yRatio = pWindow.y / mWindowSize.y;
+
+    double worldX = mMinPointWorld.x + xRatio * width;
+    double worldY = mMaxPointWorld.y - yRatio * height;
+
+    return sf::Vector2<double>(worldX, worldY);
+
 }
 
 // drawIntoBuffer renders the current world view (bounded by mMinPointWorld and mMaxPointWorld)
@@ -237,13 +299,36 @@ void MandelbrotViewer::drawIntoViewBuffer(int maxIters) {
     //       the escape radius (using mandelbrotSmooth() or mandelbrot()). If it never escapes,
     //       color the pixel black, otherwise, pass the escape iteration number to
     //       CyclicGradient::DEFAULT_GRADIENT(n) to get a colour to set the pixel to.
+
+    for (unsigned int y = 0; y < mWindowSize.y; y++) {
+        for (unsigned int x = 0; x < mWindowSize.x; x++) {
+
+            sf::Vector2<double> pixelPos(x + 0.5, y + 0.5);
+
+            sf::Vector2<double> worldPos = windowPosToWorld(pixelPos);
+
+            double iterations = mandelbrotSmooth(worldPos.x, worldPos.y, maxIters);
+
+            sf::Color color;
+
+            if (std::isinf(iterations)) {
+                
+                color = sf::Color::Black;
+            } else {
+                color = CyclicGradient::DEFAULT_GRADIENT(iterations);
+            }
+
+            mViewBuffer.setPixel({x, y}, color);
+        }
+    }
 }
 
 // copyViewBufferToGPU takes the drawn CPU-side buffer mViewBuffer and copies it to the
 // GPU-side.
 void MandelbrotViewer::copyViewBufferToGPU() {
-    // TODO: load mViewBuffer from the CPU into mViewBufferGPU on the GPU.
+    // (done)TODO: load mViewBuffer from the CPU into mViewBufferGPU on the GPU.
     // Hint: this is a one-liner.
+    mViewBufferGPU.update(mViewBuffer);
 }
 
 // draw clears the window, draws the view, as well as the text with its shadow underneath
