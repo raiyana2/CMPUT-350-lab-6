@@ -1,1 +1,7 @@
 Answer written questions here:
+
+1. We start with a low iteration count because it renders the image faster while keeping the application responsive. Then we slowly increase the iterations to increase the detail when the user isn't moving the view.
+
+2. We can divide the image into smaller sections and assign each section to a computer. Since each pixel is generated separately, they can work in parallel and the results can be combined in one image.
+
+3. Sampling 4 sub pixels and averaging their colours would make the image smoother and reduce jagged edges and noise. However it may need 4 times as Mandelbrot Calculations, making rendering slower without parallelization.
