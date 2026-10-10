@@ -144,6 +144,7 @@ void MandelbrotViewer::updateViewState(const InputSummary& inputs, sf::Time delt
     }
 }
 
+//Wrote this with assistance from ChatGPT
 void MandelbrotViewer::handleZoom(double scrollDistance, sf::Vector2i mousePosition) {
     double worldViewFactor = std::pow(ZOOM_EXPONENT_BASE, scrollDistance);
 
@@ -261,8 +262,11 @@ double MandelbrotViewer::mandelbrot(double cX, double cY, int maxIters) const {
     return std::numeric_limits<double>::infinity();  // get rid of this and add your code here...
 }
 
+
+//Wrote this with assistance from ChatGPT   
+
 double MandelbrotViewer::mandelbrotSmooth(double cX, double cY, int maxIters) const {
-    // TODO: return the smoothed number of iterations it takes for z to escape a radius of greater
+    // (done) TODO: return the smoothed number of iterations it takes for z to escape a radius of greater
     //       than 2, if it happens within maxIters iterations, otherwise return infinity.
     //       If you use an escape radius of exactly 2, you will see some artifacts. Use a
     //       higher radius (this is still correct, since divergence -> infty), but with more
